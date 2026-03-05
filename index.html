@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cities Beneath the Sea Adventure Game - AI Powered</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, addDoc, getDocs, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'coral-adventure-ai-v2';
+        
+        // Gemini API Configuration
+        const apiKey = ""; 
+
+        // Global State
+        let playerPos = 1;
+        let score = 0;
+        let studentName = "";
+        let studentClass = "";
+        let isRolling = false;
+        let timerSeconds = 10;
+        let timerInterval;
+        let currentActiveQuestion = null;
+        const TEACHER_PASSWORD = "cikgu123"; // Kata laluan guru
+
+        // Gemini AI Integration
+        async function callGemini(prompt, systemInstruction = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            let delay = 1000;
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error('API Error');
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) {
+                    if (i === 4) return "Maaf, pembantu AI sedang sibuk. Sila cuba sebentar lagi!";
+                    await new Promise(r => setTimeout(r, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        // Game Config
+        const boardSize = 36;
+        const snakes = { 12: 5, 22: 14, 31: 19 };
+        const ladders = { 3: 10, 11: 18, 20: 28 };
+        const questionTiles = [2, 6, 8, 13, 15, 17, 21, 23, 25, 27, 29, 32, 33, 34, 35];
+        const vocabTiles = [4, 9, 16, 24, 30];
+
+        const questions = [
+            { q: "What are underwater cities mainly used for?", options: ["Studying marine life", "Growing crops", "Building hotels"], correct: 0 },
+            { q: "Who lives in underwater habitats?", options: ["Astronauts", "Marine scientists", "Farmers"], correct: 1 },
+            { q: "Why do scientists explore the ocean?", options: ["To find treasure", "To understand sea life", "To build houses"], correct: 1 },
+            { q: "What equipment do divers need?", options: ["Oxygen tank", "Umbrella", "Bicycle"], correct: 0 },
+            { q: "Why must oceans be protected?", options: ["To protect marine ecosystems", "To build malls", "To make ships faster"], correct: 0 },
+            { q: "What is a coral reef?", options: ["A structure of polyps", "A giant wave", "A type of sand"], correct: 0 },
+            { q: "Which gas do divers breathe from tanks?", options: ["Carbon Dioxide", "Oxygen", "Nitrogen"], correct: 1 },
+            { q: "What is the 'ocean floor'?", options: ["The beach", "The bottom of the sea", "The surface of water"], correct: 1 },
+            { q: "Pollution in the ocean is ____.", options: ["Good for fish", "Harmful to nature", "Helpful for divers"], correct: 1 },
+            { q: "What is a submarine?", options: ["An underwater boat", "A fast airplane", "A racing car"], correct: 0 }
+        ];
+
+        // Functions
+        window.startAdventure = async () => {
+            studentName = document.getElementById('input-name').value;
+            studentClass = document.getElementById('input-class').value;
+            if(!studentName || !studentClass) return alert("Sila masukkan nama dan kelas!");
+            
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+
+            document.getElementById('screen-start').classList.add('hidden');
+            document.getElementById('screen-game').classList.remove('hidden');
+            document.getElementById('ui-name').innerText = studentName;
+            document.getElementById('ui-class').innerText = studentClass;
+            generateBoard();
+        };
+
+        window.openTeacherDashboard = () => {
+            document.getElementById('modal-password').classList.remove('hidden');
+            document.getElementById('modal-password').classList.add('flex');
+        };
+
+        window.closePasswordModal = () => {
+            document.getElementById('modal-password').classList.add('hidden');
+            document.getElementById('modal-password').classList.remove('flex');
+            document.getElementById('password-input').value = "";
+        };
+
+        window.verifyTeacherPassword = async () => {
+            const input = document.getElementById('password-input').value;
+            if (input === TEACHER_PASSWORD) {
+                closePasswordModal();
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                document.getElementById('screen-start').classList.add('hidden');
+                document.getElementById('screen-teacher').classList.remove('hidden');
+                fetchResults();
+            } else {
+                const errorMsg = document.getElementById('password-error');
+                errorMsg.classList.remove('hidden');
+                setTimeout(() => errorMsg.classList.add('hidden'), 2000);
+            }
+        };
+
+        async function fetchResults() {
+            const list = document.getElementById('teacher-results-list');
+            list.innerHTML = "<p class='animate-pulse text-cyan-800'>Memuatkan data markah...</p>";
+            
+            try {
+                const q = collection(db, 'artifacts', appId, 'public', 'data', 'results');
+                const querySnapshot = await getDocs(q);
+                
+                let results = [];
+                querySnapshot.forEach((doc) => {
+                    results.push(doc.data());
+                });
+
+                results.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+
+                if (results.length === 0) {
+                    list.innerHTML = "<p class='text-gray-500 italic'>Tiada markah direkodkan lagi.</p>";
+                    return;
+                }
+
+                list.innerHTML = `
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b-2 border-cyan-200 text-cyan-900 uppercase text-xs">
+                                <th class="py-2">Nama</th>
+                                <th class="py-2">Kelas</th>
+                                <th class="py-2">Skor</th>
+                                <th class="py-2">Tarikh</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${results.map(r => `
+                                <tr class="border-b border-cyan-50 text-cyan-800 text-sm">
+                                    <td class="py-2 font-bold">${r.name}</td>
+                                    <td class="py-2">${r.class}</td>
+                                    <td class="py-2 text-orange-600 font-black">${r.score}</td>
+                                    <td class="py-2 text-[10px]">${r.timestamp ? new Date(r.timestamp.seconds * 1000).toLocaleDateString() : 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (err) {
+                list.innerHTML = "<p class='text-red-500'>Ralat semasa mengambil data.</p>";
+            }
+        }
+
+        function generateBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            const colors = ['bg-rose-500', 'bg-cyan-500', 'bg-emerald-500', 'bg-amber-400', 'bg-purple-500', 'bg-orange-500'];
+            for (let row = 5; row >= 0; row--) {
+                for (let col = 0; col < 6; col++) {
+                    const cellNum = row % 2 === 0 ? (row * 6) + (col + 1) : (row * 6) + (6 - col);
+                    const cell = document.createElement('div');
+                    cell.id = `cell-${cellNum}`;
+                    const colorClass = colors[cellNum % colors.length];
+                    cell.className = `cell relative border-2 border-white/30 flex items-center justify-center font-black text-white text-xl shadow-inner ${colorClass} rounded-lg transition-all duration-300`;
+                    cell.innerHTML = `<span class="opacity-40">${cellNum}</span>`;
+                    if (snakes[cellNum]) cell.innerHTML += `<div class="absolute inset-0 flex items-center justify-center text-3xl">🐍</div>`;
+                    if (ladders[cellNum]) cell.innerHTML += `<div class="absolute inset-0 flex items-center justify-center text-3xl">🪜</div>`;
+                    if (questionTiles.includes(cellNum)) cell.innerHTML += `<div class="absolute top-1 right-1 text-sm">❓</div>`;
+                    if (vocabTiles.includes(cellNum)) cell.innerHTML += `<div class="absolute top-1 right-1 text-sm">📖</div>`;
+                    board.appendChild(cell);
+                }
+            }
+            updateToken();
+        }
+
+        function updateToken() {
+            const cell = document.getElementById(`cell-${playerPos}`);
+            const token = document.getElementById('player-token');
+            const board = document.getElementById('board').getBoundingClientRect();
+            const cRect = cell.getBoundingClientRect();
+            token.style.left = (cRect.left - board.left + (cRect.width/2) - 20) + 'px';
+            token.style.top = (cRect.top - board.top + (cRect.height/2) - 20) + 'px';
+            document.getElementById('ui-pos').innerText = playerPos;
+        }
+
+        window.rollDice = () => {
+            if(isRolling) return;
+            isRolling = true;
+            const val = Math.floor(Math.random() * 6) + 1;
+            const dice = document.getElementById('dice-display');
+            dice.classList.add('animate-bounce');
+            setTimeout(() => {
+                dice.classList.remove('animate-bounce');
+                dice.innerText = ['⚀','⚁','⚂','⚃','⚄','⚅'][val-1];
+                movePlayer(val);
+            }, 600);
+        };
+
+        function movePlayer(steps) {
+            playerPos = Math.min(playerPos + steps, boardSize);
+            updateToken();
+            setTimeout(checkTile, 600);
+        }
+
+        function checkTile() {
+            if (questionTiles.includes(playerPos)) {
+                showQuestion();
+            } else if (vocabTiles.includes(playerPos)) {
+                showVocab();
+            } else {
+                applySnakesAndLadders();
+            }
+        }
+
+        function applySnakesAndLadders() {
+            let moved = false;
+            if(snakes[playerPos]) {
+                playerPos = snakes[playerPos];
+                moved = true;
+            } else if(ladders[playerPos]) {
+                playerPos = ladders[playerPos];
+                moved = true;
+            }
+            if(moved) setTimeout(updateToken, 500);
+            if(playerPos === boardSize) showEndScreen();
+            else isRolling = false;
+        }
+
+        function showQuestion() {
+            const modal = document.getElementById('modal-q');
+            const q = questions[Math.floor(Math.random() * questions.length)];
+            currentActiveQuestion = q;
+            document.getElementById('q-text').innerText = q.q;
+            const opts = document.getElementById('q-options');
+            opts.innerHTML = '';
+            document.getElementById('ai-explain-btn').classList.add('hidden');
+            document.getElementById('ai-explanation-area').innerHTML = "";
+
+            q.options.forEach((opt, i) => {
+                const b = document.createElement('button');
+                b.className = "w-full p-4 text-left bg-white border-4 border-cyan-100 rounded-2xl font-black text-cyan-900 hover:bg-cyan-50 transition";
+                b.innerText = opt;
+                b.onclick = () => submitAnswer(i === q.correct);
+                opts.appendChild(b);
+            });
+
+            timerSeconds = 10;
+            document.getElementById('timer-val').innerText = timerSeconds;
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timerSeconds--;
+                document.getElementById('timer-val').innerText = timerSeconds;
+                if(timerSeconds <= 0) {
+                    clearInterval(timerInterval);
+                    submitAnswer(false);
+                }
+            }, 1000);
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        async function submitAnswer(isCorrect) {
+            clearInterval(timerInterval);
+            const feedback = document.getElementById('feedback');
+            feedback.classList.remove('hidden');
+            if(isCorrect) {
+                score += 10;
+                feedback.innerText = "CORRECT! +10 Points ⭐";
+                feedback.className = "p-3 bg-green-500 text-white rounded-xl font-black";
+                document.getElementById('ui-score').innerText = score;
+                setTimeout(closeModalQ, 1500);
+            } else {
+                playerPos = Math.max(1, playerPos - 1);
+                feedback.innerText = "WRONG! Move back 1 square 🔙";
+                feedback.className = "p-3 bg-red-500 text-white rounded-xl font-black";
+                document.getElementById('ai-explain-btn').classList.remove('hidden');
+            }
+        }
+
+        function closeModalQ() {
+            document.getElementById('modal-q').classList.add('hidden');
+            document.getElementById('modal-q').classList.remove('flex');
+            document.getElementById('feedback').classList.add('hidden');
+            updateToken();
+            applySnakesAndLadders();
+        }
+
+        window.getAIExplanation = async () => {
+            const area = document.getElementById('ai-explanation-area');
+            area.innerHTML = "<p class='text-xs italic text-cyan-800 animate-pulse'>Diver Guide is typing...</p>";
+            const prompt = `Student answered wrongly to: "${currentActiveQuestion.q}". Correct answer is "${currentActiveQuestion.options[currentActiveQuestion.correct]}". Give a very short (2 sentences) explanation for a 15-year-old.`;
+            const result = await callGemini(prompt, "Helpful marine guide.");
+            area.innerHTML = `<div class='p-3 bg-cyan-100 text-cyan-900 rounded-xl mt-2 text-xs font-bold'>✨ AI: ${result}</div><button onclick="closeModalQ()" class="w-full mt-2 bg-cyan-600 text-white py-2 rounded-lg text-xs font-black">Continue</button>`;
+        };
+
+        window.getAIFact = async () => {
+            const factBox = document.getElementById('ai-fact-box');
+            factBox.innerText = "✨ Diving for facts...";
+            const fact = await callGemini("Short interesting fact about coral reefs. Max 20 words.", "Marine expert.");
+            factBox.innerText = `✨ ${fact}`;
+        };
+
+        function showVocab() {
+            const keys = Object.keys(vocabList);
+            const word = keys[Math.floor(Math.random() * keys.length)];
+            const modal = document.getElementById('modal-vocab');
+            document.getElementById('v-word').innerText = word;
+            document.getElementById('v-meaning').innerText = vocabList[word];
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        window.closeVocab = () => {
+            document.getElementById('modal-vocab').classList.add('hidden');
+            document.getElementById('modal-vocab').classList.remove('flex');
+            applySnakesAndLadders();
+        };
+
+        async function showEndScreen() {
+            document.getElementById('screen-game').classList.add('hidden');
+            document.getElementById('screen-end').classList.remove('hidden');
+            document.getElementById('end-name').innerText = studentName;
+            document.getElementById('end-class').innerText = studentClass;
+            document.getElementById('end-score').innerText = score;
+            
+            const praiseBox = document.getElementById('ai-praise');
+            praiseBox.innerText = "AI Guide is writing a note...";
+            const praise = await callGemini(`Student ${studentName} scored ${score}/150. Write a very short cheerful praise.`, "Master explorer.");
+            praiseBox.innerText = praise;
+
+            if(auth.currentUser) {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), {
+                    name: studentName,
+                    class: studentClass,
+                    score: score,
+                    timestamp: serverTimestamp()
+                });
+            }
+        }
+
+        window.resetGame = () => location.reload();
+        window.takeScreenshot = () => {
+            html2canvas(document.getElementById('win-card')).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `Result_${studentName}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            });
+        };
+    </script>
+    <style>
+        .cell { aspect-ratio: 1 / 1; }
+        .ocean-bg { background: linear-gradient(180deg, #0ea5e9 0%, #0c4a6e 100%); }
+        @keyframes rise { from { bottom: -20px; opacity: 0; } to { bottom: 100%; opacity: 0.8; } }
+        .bubble { position: absolute; background: rgba(255,255,255,0.2); border-radius: 50%; animation: rise linear infinite; }
+    </style>
+</head>
+<body class="ocean-bg min-h-screen flex items-center justify-center p-4 font-sans overflow-hidden">
+
+    <!-- Password Modal -->
+    <div id="modal-password" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-6 z-[60]">
+        <div class="bg-white w-full max-w-xs rounded-[2rem] p-6 text-center space-y-4 shadow-2xl border-4 border-cyan-600">
+            <h3 class="font-black text-cyan-900 uppercase">Dashboard Guru</h3>
+            <p class="text-xs text-gray-500">Masukkan kata laluan untuk akses.</p>
+            <input type="password" id="password-input" class="w-full p-3 bg-gray-100 border-2 border-cyan-100 rounded-xl text-center focus:outline-none focus:border-cyan-500">
+            <p id="password-error" class="hidden text-red-500 text-[10px] font-bold">Kata laluan salah!</p>
+            <div class="flex gap-2">
+                <button onclick="closePasswordModal()" class="flex-1 bg-gray-200 text-gray-600 font-bold py-2 rounded-xl text-sm">Batal</button>
+                <button onclick="verifyTeacherPassword()" class="flex-1 bg-cyan-600 text-white font-bold py-2 rounded-xl text-sm shadow-md">Masuk</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="screen-start" class="relative z-10 bg-white p-8 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border-8 border-cyan-400">
+        <div class="text-7xl mb-4 animate-bounce">🤿</div>
+        <h1 class="text-3xl font-black text-cyan-900 leading-tight">CITIES BENEATH<br>THE SEA</h1>
+        <p class="text-cyan-600 font-bold mb-6 italic text-sm uppercase tracking-widest">Wonders of Nature: AI Edition</p>
+        <div class="space-y-4">
+            <input type="text" id="input-name" placeholder="Enter Your Name" class="w-full p-4 bg-cyan-50 border-4 border-cyan-100 rounded-2xl font-bold focus:outline-none focus:border-cyan-500">
+            <input type="text" id="input-class" placeholder="Class (e.g. 3 Dynamic)" class="w-full p-4 bg-cyan-50 border-4 border-cyan-100 rounded-2xl font-bold focus:outline-none focus:border-cyan-500">
+            <button onclick="startAdventure()" class="w-full bg-orange-500 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-orange-600 transition text-xl transform active:scale-95">▶ START ADVENTURE</button>
+            <button onclick="openTeacherDashboard()" class="w-full text-[10px] font-bold text-gray-400 underline uppercase tracking-tighter">Teacher Login / Dashboard</button>
+        </div>
+    </div>
+
+    <!-- Teacher Dashboard Screen -->
+    <div id="screen-teacher" class="hidden relative z-10 bg-white p-8 rounded-[3rem] shadow-2xl max-w-lg w-full text-center border-8 border-cyan-700 max-h-[90vh] overflow-hidden flex flex-col">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-black text-cyan-900">Dashboard Guru</h2>
+            <button onclick="resetGame()" class="text-xs font-bold text-red-500">Keluar</button>
+        </div>
+        <div id="teacher-results-list" class="overflow-y-auto flex-1 text-left p-2">
+            <!-- Data Markah Pelajar -->
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="screen-game" class="hidden relative z-10 w-full max-w-5xl flex flex-col lg:flex-row gap-6">
+        <div class="lg:w-72 flex flex-col gap-4">
+            <div class="bg-white/95 p-6 rounded-3xl shadow-xl border-4 border-cyan-400">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="text-4xl">🤿</div>
+                    <div class="overflow-hidden">
+                        <p id="ui-name" class="font-black text-cyan-900 truncate"></p>
+                        <p id="ui-class" class="text-xs font-bold text-cyan-600"></p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-center">
+                    <div class="bg-cyan-100 p-2 rounded-xl"><p class="text-[10px] uppercase font-black text-cyan-600">Score</p><p id="ui-score" class="text-xl font-black text-cyan-900">0</p></div>
+                    <div class="bg-orange-100 p-2 rounded-xl"><p class="text-[10px] uppercase font-black text-orange-600">Tile</p><p id="ui-pos" class="text-xl font-black text-orange-900">1</p></div>
+                </div>
+            </div>
+            <div class="bg-cyan-900/40 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-white flex flex-col gap-2">
+                <button onclick="getAIFact()" class="w-full bg-yellow-400 text-cyan-950 font-black py-2 rounded-lg text-[10px] hover:bg-yellow-300">✨ AI OCEAN FACT</button>
+                <div id="ai-fact-box" class="text-[10px] italic text-cyan-100 leading-tight min-h-[40px] flex items-center justify-center text-center">Tap for a mystery fact!</div>
+            </div>
+            <div class="mt-auto flex flex-col items-center">
+                <div id="dice-display" class="text-8xl bg-white w-24 h-24 rounded-2xl shadow-2xl flex items-center justify-center border-4 border-cyan-400 mb-4 cursor-pointer" onclick="rollDice()">🎲</div>
+                <p class="text-white font-black uppercase text-xs animate-pulse">Tap Dice to Move</p>
+            </div>
+        </div>
+        <div class="flex-1 relative">
+            <div id="board" class="grid grid-cols-6 gap-2 bg-black/30 p-3 rounded-3xl border-4 border-white/20 backdrop-blur-sm shadow-2xl"></div>
+            <div id="player-token" class="absolute w-10 h-10 bg-yellow-300 border-4 border-black rounded-full shadow-lg z-30 transition-all duration-500 flex items-center justify-center text-xl">🤿</div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-q" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-6 z-50">
+        <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 space-y-4 shadow-2xl border-8 border-cyan-400 relative overflow-y-auto max-h-[90vh]">
+            <div class="flex justify-between items-center bg-cyan-100 px-4 py-1 rounded-full text-cyan-700 font-black text-[10px]">
+                <span>📖 CHALLENGE</span>
+                <span>⏱ <span id="timer-val">10</span>s</span>
+            </div>
+            <h2 id="q-text" class="text-lg font-black text-gray-800 leading-tight"></h2>
+            <div id="q-options" class="space-y-2"></div>
+            <div id="feedback" class="hidden"></div>
+            <button id="ai-explain-btn" onclick="getAIExplanation()" class="hidden w-full text-[10px] font-bold text-cyan-600 bg-cyan-50 p-2 rounded-xl border border-cyan-100">✨ AI Explain This Answer</button>
+            <div id="ai-explanation-area"></div>
+        </div>
+    </div>
+
+    <div id="modal-vocab" class="fixed inset-0 bg-cyan-900/90 hidden items-center justify-center p-6 z-50">
+        <div class="bg-white w-full max-w-xs rounded-[2rem] p-6 text-center space-y-4 shadow-2xl border-8 border-orange-400">
+            <div class="text-5xl">📖</div>
+            <h2 id="v-word" class="text-2xl font-black text-cyan-900 uppercase"></h2>
+            <div class="h-1 bg-cyan-100 w-full"></div>
+            <p id="v-meaning" class="text-cyan-700 font-bold italic"></p>
+            <button onclick="closeVocab()" class="w-full bg-cyan-600 text-white font-black py-3 rounded-xl">GOT IT!</button>
+        </div>
+    </div>
+
+    <div id="screen-end" class="hidden fixed inset-0 bg-cyan-900 flex flex-col items-center justify-center p-6 z-50 text-center overflow-y-auto">
+        <div id="win-card" class="bg-white p-8 rounded-[3rem] shadow-2xl max-w-md w-full border-8 border-yellow-400">
+            <div class="text-7xl mb-4">🏆</div>
+            <h1 class="text-3xl font-black text-cyan-900 uppercase">Tahniah!</h1>
+            <div class="my-4 bg-cyan-50 p-4 rounded-3xl border-2 border-cyan-100">
+                <p id="end-name" class="text-xl font-black text-cyan-900"></p>
+                <p id="end-class" class="text-xs font-bold text-cyan-700 mb-2"></p>
+                <div class="bg-white py-2 rounded-2xl shadow-inner mb-4">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase">Final Score</p>
+                    <p id="end-score" class="text-4xl font-black text-orange-500">0</p>
+                </div>
+                <div id="ai-praise" class="text-[10px] italic text-cyan-800 font-bold px-2"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="takeScreenshot()" class="bg-emerald-600 text-white font-black py-3 rounded-xl text-sm shadow-lg">📸 RESULT</button>
+                <button onclick="resetGame()" class="bg-cyan-600 text-white font-black py-3 rounded-xl text-sm shadow-lg">🔁 REPLAY</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        for(let i=0; i<15; i++) {
+            const b = document.createElement('div');
+            b.className = 'bubble';
+            b.style.left = Math.random()*100 + '%';
+            b.style.width = b.style.height = (Math.random()*15 + 10) + 'px';
+            b.style.animationDuration = (Math.random()*5 + 5) + 's';
+            b.style.animationDelay = Math.random()*5 + 's';
+            document.body.appendChild(b);
+        }
+    </script>
+</body>
+</html>
