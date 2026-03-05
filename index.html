@@ -1,286 +1,446 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Cities Beneath the Sea Adventure</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cities Beneath the Sea Adventure - Vibrant Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-<style>
+        // Global Variables
+        let db, auth;
+        let isFirebaseEnabled = false;
+        let appId = 'coral-adventure-vibrant';
+        const apiKey = ""; // Gemini API Key if used
 
-body{
-font-family:Arial;
-background:linear-gradient(#0093E9,#80D0C7);
-text-align:center;
-margin:0;
-padding:0;
-}
+        // --- SAFE INITIALIZATION FOR GITHUB ---
+        function initSystem() {
+            try {
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    const config = JSON.parse(__firebase_config);
+                    const app = initializeApp(config);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    isFirebaseEnabled = true;
+                    console.log("Cloud system active.");
+                } else {
+                    console.warn("Local Mode: Running without Firebase (GitHub friendly).");
+                }
+            } catch (e) {
+                console.error("Initialization Error:", e);
+            }
+        }
+        initSystem();
 
-h1{
-color:white;
-margin-top:20px;
-}
+        // --- GAME STATE ---
+        let playerPos = 1;
+        let score = 0;
+        let studentName = "";
+        let studentClass = "";
+        let isRolling = false;
 
-#gameBoard{
-display:grid;
-grid-template-columns:repeat(6,80px);
-grid-gap:5px;
-justify-content:center;
-margin:30px auto;
-}
+        // 15 Reading Comprehension Questions
+        const questions = [
+            { q: "What are underwater cities mainly used for?", options: ["Studying marine life", "Growing crops", "Building hotels"], correct: 0 },
+            { q: "Who lives in underwater habitats?", options: ["Astronauts", "Marine scientists", "Farmers"], correct: 1 },
+            { q: "Why do scientists explore the ocean?", options: ["To find treasure", "To understand sea life", "To build houses"], correct: 1 },
+            { q: "What equipment do divers need?", options: ["Oxygen tank", "Umbrella", "Bicycle"], correct: 0 },
+            { q: "Why must oceans be protected?", options: ["To protect marine ecosystems", "To build malls", "To make ships faster"], correct: 0 },
+            { q: "What is a coral reef?", options: ["A structure of tiny animals", "A type of seaweed", "A rock mountain"], correct: 0 },
+            { q: "How much of the Earth is covered by water?", options: ["About 50%", "About 70%", "About 90%"], correct: 1 },
+            { q: "What can damage coral reefs?", options: ["Pollution and warm water", "Fish swimming", "Clean water"], correct: 0 },
+            { q: "Which of these is a 'marine scientist'?", options: ["A person who studies space", "A person who studies the ocean", "A person who studies volcanoes"], correct: 1 },
+            { q: "What are 'submersibles'?", options: ["Underwater research vehicles", "Flying boats", "Racing cars"], correct: 0 },
+            { q: "Why are reefs called 'cities'?", options: ["Because they have buildings", "Because many creatures live there", "Because they have roads"], correct: 1 },
+            { q: "A 'habitat' is a place where...", options: ["An animal is hunted", "An animal lives naturally", "An animal eats"], correct: 1 },
+            { q: "What is 'marine life'?", options: ["Animals living on land", "Animals living in the sea", "Plants in the desert"], correct: 1 },
+            { q: "The ocean floor is...", options: ["The surface of the sea", "The bottom of the sea", "The beach"], correct: 1 },
+            { q: "What is the biggest threat to underwater cities?", options: ["Climate change", "Too much oxygen", "Happy fish"], correct: 0 }
+        ];
 
-.square{
-width:80px;
-height:80px;
-display:flex;
-align-items:center;
-justify-content:center;
-font-weight:bold;
-font-size:18px;
-border-radius:12px;
-box-shadow:0 4px 0 rgba(0,0,0,0.2);
-}
+        const snakes = { 12: 5, 22: 14, 31: 19 };
+        const ladders = { 3: 10, 11: 18, 20: 28 };
+        const questionTiles = [2, 6, 8, 13, 15, 17, 21, 23, 25, 27, 29, 32, 33, 34, 35];
+        const vocabTiles = [4, 9, 16, 24, 30];
 
-.yellow{background:#FFD93D;}
-.purple{background:#7B61FF;color:white;}
-.blue{background:#3EC5FF;}
-.orange{background:#FF8C42;}
+        const vocabList = {
+            "coral reef": "Batu karang yang menjadi habitat hidupan laut.",
+            "marine life": "Hidupan laut seperti ikan, penyu, dan mamalia laut.",
+            "submarine": "Kapal selam untuk meneroka laut dalam.",
+            "diver": "Penyelam yang menggunakan tangki oksigen.",
+            "habitat": "Tempat tinggal semula jadi bagi hidupan.",
+            "exploration": "Penerokaan untuk menemui perkara baharu.",
+            "ocean floor": "Dasar laut yang paling bawah.",
+            "ecosystem": "Interaksi antara hidupan dan persekitaran.",
+            "underwater city": "Bandar buatan di bawah laut untuk penyelidikan."
+        };
 
-#player{
-font-size:30px;
-position:absolute;
-transition:0.3s;
-}
+        // --- CORE FUNCTIONS ---
+        window.startAdventure = () => {
+            const nameIn = document.getElementById('input-name').value.trim();
+            const classIn = document.getElementById('input-class').value.trim();
+            
+            if(!nameIn || !classIn) {
+                alert("Please enter your name and class!");
+                return;
+            }
 
-#diceBtn{
-padding:12px 25px;
-font-size:18px;
-background:#ffcc00;
-border:none;
-border-radius:10px;
-cursor:pointer;
-}
+            studentName = nameIn;
+            studentClass = classIn;
 
-#dice{
-font-size:30px;
-margin:10px;
-}
+            document.getElementById('screen-start').classList.add('hidden');
+            document.getElementById('screen-game').classList.remove('hidden');
+            document.getElementById('ui-name').innerText = studentName;
+            document.getElementById('ui-class').innerText = studentClass;
+            
+            generateBoard();
 
-#score{
-font-size:20px;
-color:white;
-}
+            if (isFirebaseEnabled && auth) {
+                signInAnonymously(auth).catch(() => {});
+            }
+        };
 
-.popup{
-position:fixed;
-top:50%;
-left:50%;
-transform:translate(-50%,-50%);
-background:white;
-padding:20px;
-border-radius:10px;
-box-shadow:0 0 15px rgba(0,0,0,0.4);
-display:none;
-width:300px;
-}
+        function generateBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            // Vibrant Color Palette for Color Blocking
+            const colors = ['bg-rose-500', 'bg-cyan-500', 'bg-emerald-500', 'bg-amber-400', 'bg-purple-600', 'bg-orange-500'];
+            
+            for (let row = 5; row >= 0; row--) {
+                for (let col = 0; col < 6; col++) {
+                    const cellNum = row % 2 === 0 ? (row * 6) + (col + 1) : (row * 6) + (6 - col);
+                    const cell = document.createElement('div');
+                    cell.id = `cell-${cellNum}`;
+                    const colorClass = colors[cellNum % colors.length];
+                    cell.className = `cell relative border-2 border-white/30 flex flex-col items-center justify-center font-black text-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)] ${colorClass} transition-all duration-300 transform hover:scale-105`;
+                    
+                    cell.innerHTML = `<span>${cellNum}</span>`;
+                    
+                    if (snakes[cellNum]) {
+                        cell.innerHTML += `
+                            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span class="text-4xl drop-shadow-md">🐍</span>
+                                <span class="bg-red-700 text-[8px] px-1 rounded -mt-1 font-bold">DOWN TO ${snakes[cellNum]}</span>
+                            </div>`;
+                    }
+                    if (ladders[cellNum]) {
+                        cell.innerHTML += `
+                            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span class="text-4xl drop-shadow-md">🪜</span>
+                                <span class="bg-blue-700 text-[8px] px-1 rounded -mt-1 font-bold">UP TO ${ladders[cellNum]}</span>
+                            </div>`;
+                    }
+                    if (questionTiles.includes(cellNum)) cell.innerHTML += `<div class="absolute top-1 right-1 bg-white text-black rounded-full w-5 h-5 flex items-center justify-center text-[10px] shadow-sm">❓</div>`;
+                    if (vocabTiles.includes(cellNum)) cell.innerHTML += `<div class="absolute top-1 right-1 bg-white text-black rounded-full w-5 h-5 flex items-center justify-center text-[10px] shadow-sm">📖</div>`;
+                    
+                    board.appendChild(cell);
+                }
+            }
+            updateToken();
+        }
 
-button.option{
-display:block;
-width:100%;
-margin:5px;
-padding:8px;
-}
+        function updateToken() {
+            const cell = document.getElementById(`cell-${playerPos}`);
+            if (!cell) return;
+            const token = document.getElementById('player-token');
+            const board = document.getElementById('board').getBoundingClientRect();
+            const cRect = cell.getBoundingClientRect();
+            token.style.left = (cRect.left - board.left + (cRect.width/2) - 16) + 'px';
+            token.style.top = (cRect.top - board.top + (cRect.height/2) - 16) + 'px';
+            document.getElementById('ui-pos').innerText = playerPos;
+        }
 
-</style>
+        window.rollDice = () => {
+            if(isRolling) return;
+            isRolling = true;
+            const val = Math.floor(Math.random() * 6) + 1;
+            const dice = document.getElementById('dice-display');
+            dice.classList.add('animate-bounce');
+            setTimeout(() => {
+                dice.classList.remove('animate-bounce');
+                dice.innerText = ['⚀','⚁','⚂','⚃','⚄','⚅'][val-1];
+                movePlayer(val);
+            }, 800);
+        };
+
+        function movePlayer(steps) {
+            playerPos = Math.min(playerPos + steps, 36);
+            updateToken();
+            setTimeout(checkTile, 600);
+        }
+
+        function checkTile() {
+            if (questionTiles.includes(playerPos)) showQuestion();
+            else if (vocabTiles.includes(playerPos)) showVocab();
+            else applySnakesAndLadders();
+        }
+
+        function applySnakesAndLadders() {
+            let moved = false;
+            if(snakes[playerPos]) { playerPos = snakes[playerPos]; moved = true; }
+            else if(ladders[playerPos]) { playerPos = ladders[playerPos]; moved = true; }
+            if(moved) setTimeout(updateToken, 500);
+            if(playerPos === 36) showEndScreen();
+            else isRolling = false;
+        }
+
+        function showQuestion() {
+            const modal = document.getElementById('modal-q');
+            const q = questions[Math.floor(Math.random() * questions.length)];
+            window.currentActiveQuestion = q;
+            document.getElementById('q-text').innerText = q.q;
+            const opts = document.getElementById('q-options');
+            opts.innerHTML = '';
+
+            q.options.forEach((opt, i) => {
+                const b = document.createElement('button');
+                b.className = "w-full p-4 text-left bg-white border-4 border-cyan-100 rounded-2xl font-black text-cyan-900 hover:bg-cyan-50 hover:border-cyan-400 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,0.1)]";
+                b.innerText = opt;
+                b.onclick = () => submitAnswer(i === q.correct);
+                opts.appendChild(b);
+            });
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function submitAnswer(isCorrect) {
+            const feedback = document.getElementById('feedback');
+            feedback.classList.remove('hidden');
+            if(isCorrect) {
+                score += 10;
+                feedback.innerText = "CORRECT! +10 Points ⭐";
+                feedback.className = "p-3 bg-green-500 text-white rounded-xl font-black text-center animate-pulse shadow-lg";
+                document.getElementById('ui-score').innerText = score;
+                setTimeout(closeModalQ, 1200);
+            } else {
+                playerPos = Math.max(1, playerPos - 1);
+                feedback.innerText = "WRONG! Move back 1 square 🔙";
+                feedback.className = "p-3 bg-red-500 text-white rounded-xl font-black text-center shadow-lg";
+                setTimeout(closeModalQ, 1800);
+            }
+        }
+
+        function closeModalQ() {
+            document.getElementById('modal-q').classList.add('hidden');
+            document.getElementById('modal-q').classList.remove('flex');
+            document.getElementById('feedback').classList.add('hidden');
+            updateToken();
+            applySnakesAndLadders();
+        }
+
+        function showVocab() {
+            const keys = Object.keys(vocabList);
+            const word = keys[Math.floor(Math.random() * keys.length)];
+            const modal = document.getElementById('modal-vocab');
+            document.getElementById('v-word').innerText = word;
+            document.getElementById('v-meaning').innerText = vocabList[word];
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        window.closeVocab = () => {
+            document.getElementById('modal-vocab').classList.add('hidden');
+            document.getElementById('modal-vocab').classList.remove('flex');
+            applySnakesAndLadders();
+        };
+
+        function showEndScreen() {
+            document.getElementById('screen-game').classList.add('hidden');
+            document.getElementById('screen-end').classList.remove('hidden');
+            document.getElementById('end-name').innerText = studentName;
+            document.getElementById('end-class').innerText = studentClass;
+            document.getElementById('end-score').innerText = score;
+            
+            if(isFirebaseEnabled && db && auth.currentUser) {
+                addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), {
+                    name: studentName, class: studentClass, score: score, timestamp: serverTimestamp()
+                }).catch(() => {});
+            }
+        }
+
+        window.resetGame = () => location.reload();
+        window.takeScreenshot = () => {
+            html2canvas(document.getElementById('win-card')).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `Result_${studentName}_${studentClass}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            });
+        };
+
+        window.openTeacherDashboard = async () => {
+            const pass = prompt("Enter Teacher Password:");
+            if(pass === "cikgu123") {
+                if(!isFirebaseEnabled) {
+                    alert("Dashboard only available in original environment.");
+                    return;
+                }
+                document.getElementById('screen-start').classList.add('hidden');
+                document.getElementById('screen-teacher').classList.remove('hidden');
+                fetchResults();
+            } else { alert("Incorrect password."); }
+        };
+
+        async function fetchResults() {
+            const list = document.getElementById('teacher-results-list');
+            list.innerHTML = "<p class='text-center py-4 animate-pulse text-cyan-900 font-bold'>Loading student scores...</p>";
+            try {
+                const qSnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'results'));
+                let html = '<table class="w-full text-sm font-bold"><thead><tr class="bg-cyan-100 text-cyan-900 uppercase text-[10px]"><th class="p-2">Name</th><th class="p-2">Class</th><th class="p-2">Score</th></tr></thead><tbody>';
+                qSnapshot.forEach(doc => {
+                    const r = doc.data();
+                    html += `<tr class="border-b text-cyan-800"><td class="p-2 truncate max-w-[100px]">${r.name}</td><td class="p-2 text-center">${r.class}</td><td class="p-2 text-center text-orange-600">${r.score}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                list.innerHTML = html;
+            } catch (e) { list.innerHTML = "Error fetching data."; }
+        }
+
+    </script>
+    <style>
+        .cell { aspect-ratio: 1 / 1; }
+        .ocean-bg { background: linear-gradient(180deg, #0ea5e9 0%, #0c4a6e 100%); }
+        .bubble { position: absolute; background: rgba(255,255,255,0.2); border-radius: 50%; animation: rise linear infinite; pointer-events: none; z-index: 0; }
+        @keyframes rise { from { bottom: -20px; opacity: 0; } to { bottom: 100%; opacity: 0.8; } }
+        .animate-pop { animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes pop { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    </style>
 </head>
-
-<body>
-
-<h1>🌊 Cities Beneath the Sea Adventure</h1>
-
-<div id="score">Score: 0</div>
-
-<div id="dice">🎲</div>
-<button id="diceBtn">Roll Dice</button>
-
-<div id="gameBoard"></div>
-
-<div id="questionBox" class="popup">
-<h3 id="questionText"></h3>
-<div id="answers"></div>
-</div>
-
-<script>
-
-const board=document.getElementById("gameBoard")
-
-let colors=["yellow","purple","blue","orange"]
-
-for(let i=36;i>=1;i--){
-
-let square=document.createElement("div")
-square.className="square "+colors[i%4]
-square.id="sq"+i
-square.innerText=i
-
-board.appendChild(square)
-
-}
-
-let playerPos=1
-let score=0
-
-let snakes={
-12:5,
-22:14,
-31:19
-}
-
-let ladders={
-3:10,
-11:18,
-20:28
-}
-
-const questions=[
-
-{
-q:"What are underwater cities used for?",
-a:["Studying marine life","Building hotels","Growing crops"],
-correct:0
-},
-
-{
-q:"Who works in underwater habitats?",
-a:["Astronauts","Marine scientists","Farmers"],
-correct:1
-},
-
-{
-q:"What equipment does a diver need?",
-a:["Oxygen tank","Umbrella","Helmet"],
-correct:0
-},
-
-{
-q:"What is marine life?",
-a:["Animals in the sea","Animals in the forest","Birds"],
-correct:0
-},
-
-{
-q:"What vehicle explores deep ocean?",
-a:["Submarine","Car","Helicopter"],
-correct:0
-}
-
-]
-
-const questionSquares=[5,9,15,21,27]
-
-function movePlayer(){
-
-let square=document.getElementById("sq"+playerPos)
-
-square.innerHTML=playerPos+" 🤿"
-
-}
-
-movePlayer()
-
-document.getElementById("diceBtn").onclick=function(){
-
-let roll=Math.floor(Math.random()*6)+1
-
-document.getElementById("dice").innerText="🎲 "+roll
-
-document.getElementById("sq"+playerPos).innerText=playerPos
-
-playerPos+=roll
-
-if(playerPos>36)playerPos=36
-
-if(snakes[playerPos]){
-
-alert("🐍 Oh no! Snake!")
-
-playerPos=snakes[playerPos]
-
-}
-
-if(ladders[playerPos]){
-
-alert("🪜 Ladder! Climb up!")
-
-playerPos=ladders[playerPos]
-
-}
-
-movePlayer()
-
-if(questionSquares.includes(playerPos)){
-
-showQuestion()
-
-}
-
-if(playerPos===36){
-
-alert("🏆 Adventure Complete! Score:"+score)
-
-}
-
-}
-
-function showQuestion(){
-
-let q=questions[Math.floor(Math.random()*questions.length)]
-
-document.getElementById("questionBox").style.display="block"
-
-document.getElementById("questionText").innerText=q.q
-
-let ans=document.getElementById("answers")
-
-ans.innerHTML=""
-
-q.a.forEach((option,index)=>{
-
-let btn=document.createElement("button")
-
-btn.className="option"
-
-btn.innerText=option
-
-btn.onclick=function(){
-
-if(index===q.correct){
-
-score+=10
-
-alert("Correct! +10")
-
-}else{
-
-alert("Wrong! Move back")
-
-playerPos--
-
-}
-
-document.getElementById("score").innerText="Score: "+score
-
-document.getElementById("questionBox").style.display="none"
-
-movePlayer()
-
-}
-
-ans.appendChild(btn)
-
-})
-
-}
-
-</script>
-
+<body class="ocean-bg min-h-screen flex items-center justify-center p-4 font-sans overflow-hidden select-none">
+    <div id="bubbles-container" class="fixed inset-0 pointer-events-none"></div>
+
+    <!-- START SCREEN -->
+    <div id="screen-start" class="relative z-10 bg-white p-10 rounded-[3rem] shadow-[10px_10px_0px_0px_rgba(0,0,0,0.3)] max-w-sm w-full text-center border-8 border-cyan-400 animate-pop">
+        <div class="text-7xl mb-4 animate-bounce">🤿</div>
+        <h1 class="text-3xl font-black text-cyan-950 leading-none mb-1 uppercase tracking-tighter">Cities Beneath<br>The Sea</h1>
+        <p class="text-cyan-600 font-black mb-8 text-xs uppercase tracking-widest bg-cyan-50 py-1 rounded-full">Unit 3 Reading Adventure</p>
+        
+        <div class="space-y-4">
+            <input type="text" id="input-name" placeholder="YOUR FULL NAME" class="w-full p-4 bg-gray-50 border-4 border-gray-100 rounded-2xl font-black text-center focus:outline-none focus:border-cyan-400 placeholder:text-gray-300">
+            <input type="text" id="input-class" placeholder="YOUR CLASS (e.g. 3 ALPHA)" class="w-full p-4 bg-gray-50 border-4 border-gray-100 rounded-2xl font-black text-center focus:outline-none focus:border-cyan-400 placeholder:text-gray-300">
+            <button onclick="startAdventure()" class="w-full bg-orange-500 text-white font-black py-5 rounded-2xl shadow-[6px_6px_0px_0px_rgba(194,65,12,1)] hover:translate-y-1 hover:shadow-none transition-all text-xl uppercase tracking-wider">
+                ▶ START ADVENTURE
+            </button>
+            <button onclick="openTeacherDashboard()" class="text-[10px] text-gray-400 underline font-bold hover:text-cyan-600">Teacher Dashboard (Cloud)</button>
+        </div>
+    </div>
+
+    <!-- TEACHER DASHBOARD -->
+    <div id="screen-teacher" class="hidden relative z-10 bg-white p-8 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border-8 border-cyan-700 max-h-[80vh] overflow-hidden flex flex-col animate-pop">
+        <div class="flex justify-between items-center mb-4 border-b-4 border-cyan-50 pb-2">
+            <h2 class="font-black text-cyan-900 text-xl uppercase tracking-tighter">Student Marks</h2>
+            <button onclick="resetGame()" class="text-xs text-red-500 font-black border-2 border-red-100 px-3 py-1 rounded-full hover:bg-red-50">EXIT</button>
+        </div>
+        <div id="teacher-results-list" class="overflow-y-auto flex-1 rounded-xl bg-gray-50"></div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="screen-game" class="hidden relative z-10 w-full max-w-5xl flex flex-col lg:flex-row gap-6 h-full max-h-[95vh] animate-pop">
+        <!-- Dashboard Panel -->
+        <div class="lg:w-72 flex flex-col gap-4">
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-[8px_8px_0px_0px_rgba(0,0,0,0.2)] border-4 border-black">
+                <div class="flex items-center gap-3 mb-4 border-b-2 border-gray-100 pb-2">
+                    <span class="text-4xl bg-cyan-100 p-2 rounded-2xl">🐳</span>
+                    <div class="overflow-hidden leading-tight">
+                        <p id="ui-name" class="font-black text-cyan-950 text-base truncate"></p>
+                        <p id="ui-class" class="text-[10px] font-black text-cyan-600 truncate uppercase tracking-widest"></p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-center">
+                    <div class="bg-cyan-50 p-3 rounded-2xl border-2 border-cyan-100 shadow-inner">
+                        <p class="text-[10px] font-black text-cyan-600 uppercase">Score</p>
+                        <p id="ui-score" class="text-3xl font-black text-cyan-900 leading-none">0</p>
+                    </div>
+                    <div class="bg-orange-50 p-3 rounded-2xl border-2 border-orange-100 shadow-inner">
+                        <p class="text-[10px] font-black text-orange-600 uppercase">Tile</p>
+                        <p id="ui-pos" class="text-3xl font-black text-orange-900 leading-none">1</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-auto flex flex-col items-center pb-8 gap-4">
+                <button id="dice-display" onclick="rollDice()" class="text-8xl bg-white w-28 h-28 rounded-[2.5rem] shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)] flex items-center justify-center border-4 border-black hover:scale-110 active:scale-95 transition-all text-cyan-900 leading-none">🎲</button>
+                <p class="text-white font-black uppercase text-sm tracking-[0.2em] drop-shadow-lg animate-pulse">Tap Dice to Roll</p>
+            </div>
+        </div>
+
+        <!-- Board Grid -->
+        <div class="flex-1 relative bg-white/20 rounded-[3rem] p-4 border-4 border-white/40 shadow-2xl backdrop-blur-sm">
+            <div id="board" class="grid grid-cols-6 gap-3 h-full w-full"></div>
+            <!-- Player Token -->
+            <div id="player-token" class="absolute w-12 h-12 bg-yellow-400 border-4 border-black rounded-full shadow-2xl z-30 transition-all duration-500 flex items-center justify-center text-2xl animate-float">🤿</div>
+        </div>
+    </div>
+
+    <!-- CHALLENGE MODAL -->
+    <div id="modal-q" class="fixed inset-0 bg-cyan-950/90 hidden items-center justify-center p-6 z-50">
+        <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 space-y-6 shadow-2xl border-8 border-cyan-400 animate-pop">
+            <div class="flex items-center justify-center bg-cyan-50 py-2 rounded-full border-2 border-cyan-100">
+                <span class="text-cyan-700 font-black text-sm uppercase tracking-widest">📖 Ocean Challenge</span>
+            </div>
+            <h2 id="q-text" class="text-2xl font-black text-gray-800 leading-tight text-center"></h2>
+            <div id="q-options" class="space-y-3"></div>
+            <div id="feedback" class="hidden"></div>
+        </div>
+    </div>
+
+    <!-- VOCAB MODAL -->
+    <div id="modal-vocab" class="fixed inset-0 bg-blue-950/90 hidden items-center justify-center p-6 z-50">
+        <div class="bg-white w-full max-w-xs rounded-[3rem] p-8 text-center space-y-6 border-8 border-orange-400 animate-pop shadow-2xl">
+            <div class="text-7xl animate-bounce">📖</div>
+            <h2 id="v-word" class="text-3xl font-black text-cyan-950 uppercase leading-none"></h2>
+            <div class="h-2 bg-orange-100 w-full rounded-full"></div>
+            <p id="v-meaning" class="text-lg text-cyan-800 italic font-black leading-tight"></p>
+            <button onclick="closeVocab()" class="w-full bg-cyan-600 text-white font-black py-4 rounded-2xl shadow-lg text-xl uppercase tracking-widest">Got it!</button>
+        </div>
+    </div>
+
+    <!-- WIN SCREEN -->
+    <div id="screen-end" class="hidden fixed inset-0 bg-cyan-950 flex flex-col items-center justify-center p-6 z-50 text-center animate-pop">
+        <div id="win-card" class="bg-white p-10 rounded-[4rem] shadow-2xl max-w-sm w-full border-8 border-yellow-400 relative overflow-hidden">
+            <!-- Decorative starfish -->
+            <div class="absolute -top-5 -right-5 text-6xl opacity-30">⭐️</div>
+            <div class="text-8xl mb-4">🏆</div>
+            <h1 class="text-4xl font-black text-cyan-950 leading-tight mb-2 uppercase tracking-tighter">Adventure Complete!</h1>
+            <p class="text-cyan-600 font-bold mb-8 italic">You discovered the wonders of the sea!</p>
+            
+            <div class="my-6 bg-cyan-50 p-6 rounded-[2.5rem] border-4 border-cyan-100 shadow-inner">
+                <p id="end-name" class="text-2xl font-black text-cyan-950 leading-none mb-1"></p>
+                <p id="end-class" class="text-xs font-black text-cyan-700 uppercase tracking-widest mb-6"></p>
+                <div class="bg-white py-6 rounded-3xl shadow-xl border-2 border-cyan-100">
+                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-1">Final Score</p>
+                    <p id="end-score" class="text-7xl font-black text-orange-500 leading-none">0</p>
+                </div>
+            </div>
+            
+            <div class="flex flex-col gap-3">
+                <button onclick="takeScreenshot()" class="bg-emerald-500 text-white font-black py-5 rounded-3xl shadow-[6px_6px_0px_0px_rgba(5,150,105,1)] hover:translate-y-1 hover:shadow-none transition-all text-xl uppercase tracking-widest">
+                    📸 Download Result
+                </button>
+                <button onclick="resetGame()" class="text-cyan-600 font-black text-sm underline hover:text-cyan-900 transition-colors uppercase tracking-widest mt-4">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Floating Bubble Effect
+        const container = document.getElementById('bubbles-container');
+        for(let i=0; i<15; i++) {
+            const b = document.createElement('div');
+            b.className = 'bubble';
+            b.style.left = Math.random()*100 + '%';
+            b.style.width = b.style.height = (Math.random()*25 + 10) + 'px';
+            b.style.animationDuration = (Math.random()*6 + 4) + 's';
+            b.style.animationDelay = Math.random()*5 + 's';
+            container.appendChild(b);
+        }
+    </script>
 </body>
 </html>
