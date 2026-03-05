@@ -12,16 +12,29 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, collection, addDoc, getDocs, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'coral-adventure-ai-v2';
-        
-        // Gemini API Configuration
-        const apiKey = ""; 
+        // Inisialisasi variabel dengan fail-safe untuk GitHub Pages
+        let app, auth, db;
+        let firebaseEnabled = false;
+        let appId = 'coral-adventure-ai-v2';
+        const apiKey = ""; // API Key Gemini
 
-        // Global State
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                appId = typeof __app_id !== 'undefined' ? __app_id : appId;
+                firebaseEnabled = true;
+                console.log("Firebase terhubung.");
+            } else {
+                console.warn("Konfigurasi Firebase tidak ditemukan. Berjalan dalam mode lokal.");
+            }
+        } catch (e) {
+            console.error("Gagal memuat konfigurasi Firebase:", e);
+        }
+
+        // State Global
         let playerPos = 1;
         let score = 0;
         let studentName = "";
@@ -30,10 +43,11 @@
         let timerSeconds = 10;
         let timerInterval;
         let currentActiveQuestion = null;
-        const TEACHER_PASSWORD = "cikgu123"; // Kata laluan guru
+        const TEACHER_PASSWORD = "cikgu123"; 
 
-        // Gemini AI Integration
+        // Integrasi AI Gemini
         async function callGemini(prompt, systemInstruction = "") {
+            if (!apiKey) return "AI sedang offline (API Key tidak diatur).";
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
             const payload = {
                 contents: [{ parts: [{ text: prompt }] }],
@@ -41,7 +55,7 @@
             };
 
             let delay = 1000;
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 3; i++) {
                 try {
                     const response = await fetch(url, {
                         method: 'POST',
@@ -52,14 +66,14 @@
                     const data = await response.json();
                     return data.candidates?.[0]?.content?.parts?.[0]?.text;
                 } catch (e) {
-                    if (i === 4) return "Maaf, pembantu AI sedang sibuk. Sila cuba sebentar lagi!";
                     await new Promise(r => setTimeout(r, delay));
                     delay *= 2;
                 }
             }
+            return "Maaf, AI tidak merespons.";
         }
 
-        // Game Config
+        // Konfigurasi Game
         const boardSize = 36;
         const snakes = { 12: 5, 22: 14, 31: 19 };
         const ladders = { 3: 10, 11: 18, 20: 28 };
@@ -79,16 +93,39 @@
             { q: "What is a submarine?", options: ["An underwater boat", "A fast airplane", "A racing car"], correct: 0 }
         ];
 
-        // Functions
+        const vocabList = {
+            "coral reef": "Batu karang yang menjadi habitat hidupan laut.",
+            "marine life": "Hidupan laut seperti ikan, penyu, dan mamalia laut.",
+            "submarine": "Kapal selam untuk meneroka laut dalam.",
+            "diver": "Penyelam yang menggunakan tangki oksigen.",
+            "habitat": "Tempat tinggal semula jadi bagi hidupan.",
+            "exploration": "Penerokaan untuk menemui perkara baharu.",
+            "ocean floor": "Dasar laut yang paling bawah.",
+            "ecosystem": "Interaksi antara hidupan dan persekitaran.",
+            "underwater city": "Bandar buatan di bawah laut untuk penyelidikan."
+        };
+
+        // Fungsi Utama
         window.startAdventure = async () => {
-            studentName = document.getElementById('input-name').value;
-            studentClass = document.getElementById('input-class').value;
-            if(!studentName || !studentClass) return alert("Sila masukkan nama dan kelas!");
+            studentName = document.getElementById('input-name').value.trim();
+            studentClass = document.getElementById('input-class').value.trim();
             
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
+            if(!studentName || !studentClass) {
+                alert("Sila masukkan nama dan kelas!");
+                return;
+            }
+            
+            // Mencoba autentikasi jika Firebase tersedia
+            if (firebaseEnabled && auth) {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (e) {
+                    console.error("Auth failed:", e);
+                }
             }
 
             document.getElementById('screen-start').classList.add('hidden');
@@ -113,12 +150,10 @@
             const input = document.getElementById('password-input').value;
             if (input === TEACHER_PASSWORD) {
                 closePasswordModal();
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
+                if (!firebaseEnabled) {
+                    alert("Dashboard tidak tersedia dalam mode lokal GitHub.");
+                    return;
                 }
-                
                 document.getElementById('screen-start').classList.add('hidden');
                 document.getElementById('screen-teacher').classList.remove('hidden');
                 fetchResults();
@@ -130,38 +165,35 @@
         };
 
         async function fetchResults() {
+            if (!firebaseEnabled || !db) return;
             const list = document.getElementById('teacher-results-list');
-            list.innerHTML = "<p class='animate-pulse text-cyan-800'>Memuatkan data markah...</p>";
+            list.innerHTML = "<p class='animate-pulse text-cyan-800 text-center'>Memuatkan data markah...</p>";
             
             try {
                 const q = collection(db, 'artifacts', appId, 'public', 'data', 'results');
                 const querySnapshot = await getDocs(q);
-                
                 let results = [];
-                querySnapshot.forEach((doc) => {
-                    results.push(doc.data());
-                });
-
+                querySnapshot.forEach((doc) => results.push(doc.data()));
                 results.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
 
                 if (results.length === 0) {
-                    list.innerHTML = "<p class='text-gray-500 italic'>Tiada markah direkodkan lagi.</p>";
+                    list.innerHTML = "<p class='text-gray-500 italic text-center'>Tiada markah direkodkan lagi.</p>";
                     return;
                 }
 
                 list.innerHTML = `
                     <table class="w-full text-left border-collapse">
                         <thead>
-                            <tr class="border-b-2 border-cyan-200 text-cyan-900 uppercase text-xs">
-                                <th class="py-2">Nama</th>
-                                <th class="py-2">Kelas</th>
-                                <th class="py-2">Skor</th>
-                                <th class="py-2">Tarikh</th>
+                            <tr class="border-b-2 border-cyan-200 text-cyan-900 uppercase text-[10px]">
+                                <th class="py-2 text-center">Nama</th>
+                                <th class="py-2 text-center">Kelas</th>
+                                <th class="py-2 text-center">Skor</th>
+                                <th class="py-2 text-center">Tarikh</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${results.map(r => `
-                                <tr class="border-b border-cyan-50 text-cyan-800 text-sm">
+                                <tr class="border-b border-cyan-50 text-cyan-800 text-xs">
                                     <td class="py-2 font-bold">${r.name}</td>
                                     <td class="py-2">${r.class}</td>
                                     <td class="py-2 text-orange-600 font-black">${r.score}</td>
@@ -172,7 +204,7 @@
                     </table>
                 `;
             } catch (err) {
-                list.innerHTML = "<p class='text-red-500'>Ralat semasa mengambil data.</p>";
+                list.innerHTML = "<p class='text-red-500 text-center'>Ralat mengambil data.</p>";
             }
         }
 
@@ -291,13 +323,13 @@
             feedback.classList.remove('hidden');
             if(isCorrect) {
                 score += 10;
-                feedback.innerText = "CORRECT! +10 Points ⭐";
+                feedback.innerText = "BETUL! +10 Mata ⭐";
                 feedback.className = "p-3 bg-green-500 text-white rounded-xl font-black";
                 document.getElementById('ui-score').innerText = score;
                 setTimeout(closeModalQ, 1500);
             } else {
                 playerPos = Math.max(1, playerPos - 1);
-                feedback.innerText = "WRONG! Move back 1 square 🔙";
+                feedback.innerText = "SALAH! Undur 1 petak 🔙";
                 feedback.className = "p-3 bg-red-500 text-white rounded-xl font-black";
                 document.getElementById('ai-explain-btn').classList.remove('hidden');
             }
@@ -314,9 +346,9 @@
         window.getAIExplanation = async () => {
             const area = document.getElementById('ai-explanation-area');
             area.innerHTML = "<p class='text-xs italic text-cyan-800 animate-pulse'>Diver Guide is typing...</p>";
-            const prompt = `Student answered wrongly to: "${currentActiveQuestion.q}". Correct answer is "${currentActiveQuestion.options[currentActiveQuestion.correct]}". Give a very short (2 sentences) explanation for a 15-year-old.`;
+            const prompt = `Pelajar tersalah jawab soalan: "${currentActiveQuestion.q}". Jawapan betul ialah "${currentActiveQuestion.options[currentActiveQuestion.correct]}". Terangkan ringkas dalam 2 ayat dalam Bahasa Inggeris.`;
             const result = await callGemini(prompt, "Helpful marine guide.");
-            area.innerHTML = `<div class='p-3 bg-cyan-100 text-cyan-900 rounded-xl mt-2 text-xs font-bold'>✨ AI: ${result}</div><button onclick="closeModalQ()" class="w-full mt-2 bg-cyan-600 text-white py-2 rounded-lg text-xs font-black">Continue</button>`;
+            area.innerHTML = `<div class='p-3 bg-cyan-100 text-cyan-900 rounded-xl mt-2 text-xs font-bold'>✨ AI: ${result}</div><button onclick="closeModalQ()" class="w-full mt-2 bg-cyan-600 text-white py-2 rounded-lg text-xs font-black">Teruskan</button>`;
         };
 
         window.getAIFact = async () => {
@@ -350,17 +382,19 @@
             document.getElementById('end-score').innerText = score;
             
             const praiseBox = document.getElementById('ai-praise');
-            praiseBox.innerText = "AI Guide is writing a note...";
-            const praise = await callGemini(`Student ${studentName} scored ${score}/150. Write a very short cheerful praise.`, "Master explorer.");
+            praiseBox.innerText = "AI sedang menulis nota...";
+            const praise = await callGemini(`Pelajar ${studentName} mendapat markah ${score}/150. Berikan pujian ringkas dalam Bahasa Inggeris.`, "Master explorer.");
             praiseBox.innerText = praise;
 
-            if(auth.currentUser) {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), {
-                    name: studentName,
-                    class: studentClass,
-                    score: score,
-                    timestamp: serverTimestamp()
-                });
+            if(firebaseEnabled && db && auth.currentUser) {
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), {
+                        name: studentName,
+                        class: studentClass,
+                        score: score,
+                        timestamp: serverTimestamp()
+                    });
+                } catch (e) { console.error("Simpan gagal:", e); }
             }
         }
 
@@ -373,17 +407,32 @@
                 link.click();
             });
         };
+
+        // UI Bubbles
+        window.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('bubbles-container');
+            for(let i=0; i<15; i++) {
+                const b = document.createElement('div');
+                b.className = 'bubble';
+                b.style.left = Math.random()*100 + '%';
+                b.style.width = b.style.height = (Math.random()*15 + 10) + 'px';
+                b.style.animationDuration = (Math.random()*5 + 5) + 's';
+                b.style.animationDelay = Math.random()*5 + 's';
+                container.appendChild(b);
+            }
+        });
     </script>
     <style>
         .cell { aspect-ratio: 1 / 1; }
         .ocean-bg { background: linear-gradient(180deg, #0ea5e9 0%, #0c4a6e 100%); }
         @keyframes rise { from { bottom: -20px; opacity: 0; } to { bottom: 100%; opacity: 0.8; } }
-        .bubble { position: absolute; background: rgba(255,255,255,0.2); border-radius: 50%; animation: rise linear infinite; }
+        .bubble { position: absolute; background: rgba(255,255,255,0.2); border-radius: 50%; animation: rise linear infinite; pointer-events: none; }
     </style>
 </head>
 <body class="ocean-bg min-h-screen flex items-center justify-center p-4 font-sans overflow-hidden">
+    <div id="bubbles-container" class="fixed inset-0 pointer-events-none"></div>
 
-    <!-- Password Modal -->
+    <!-- Modal Password -->
     <div id="modal-password" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-6 z-[60]">
         <div class="bg-white w-full max-w-xs rounded-[2rem] p-6 text-center space-y-4 shadow-2xl border-4 border-cyan-600">
             <h3 class="font-black text-cyan-900 uppercase">Dashboard Guru</h3>
@@ -413,12 +462,10 @@
     <!-- Teacher Dashboard Screen -->
     <div id="screen-teacher" class="hidden relative z-10 bg-white p-8 rounded-[3rem] shadow-2xl max-w-lg w-full text-center border-8 border-cyan-700 max-h-[90vh] overflow-hidden flex flex-col">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-black text-cyan-900">Dashboard Guru</h2>
-            <button onclick="resetGame()" class="text-xs font-bold text-red-500">Keluar</button>
+            <h2 class="text-2xl font-black text-cyan-900 uppercase">Dashboard</h2>
+            <button onclick="resetGame()" class="text-xs font-bold text-red-500 bg-red-50 px-3 py-1 rounded">Keluar</button>
         </div>
-        <div id="teacher-results-list" class="overflow-y-auto flex-1 text-left p-2">
-            <!-- Data Markah Pelajar -->
-        </div>
+        <div id="teacher-results-list" class="overflow-y-auto flex-1 text-left p-2 bg-cyan-50/50 rounded-xl"></div>
     </div>
 
     <!-- Game Screen -->
@@ -429,12 +476,12 @@
                     <div class="text-4xl">🤿</div>
                     <div class="overflow-hidden">
                         <p id="ui-name" class="font-black text-cyan-900 truncate"></p>
-                        <p id="ui-class" class="text-xs font-bold text-cyan-600"></p>
+                        <p id="ui-class" class="text-xs font-bold text-cyan-600 uppercase"></p>
                     </div>
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-center">
-                    <div class="bg-cyan-100 p-2 rounded-xl"><p class="text-[10px] uppercase font-black text-cyan-600">Score</p><p id="ui-score" class="text-xl font-black text-cyan-900">0</p></div>
-                    <div class="bg-orange-100 p-2 rounded-xl"><p class="text-[10px] uppercase font-black text-orange-600">Tile</p><p id="ui-pos" class="text-xl font-black text-orange-900">1</p></div>
+                <div class="grid grid-cols-2 gap-2 text-center font-black">
+                    <div class="bg-cyan-100 p-2 rounded-xl text-cyan-900"><p class="text-[10px] uppercase text-cyan-600">Score</p><p id="ui-score">0</p></div>
+                    <div class="bg-orange-100 p-2 rounded-xl text-orange-900"><p class="text-[10px] uppercase text-orange-600">Tile</p><p id="ui-pos">1</p></div>
                 </div>
             </div>
             <div class="bg-cyan-900/40 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-white flex flex-col gap-2">
@@ -480,10 +527,10 @@
     <div id="screen-end" class="hidden fixed inset-0 bg-cyan-900 flex flex-col items-center justify-center p-6 z-50 text-center overflow-y-auto">
         <div id="win-card" class="bg-white p-8 rounded-[3rem] shadow-2xl max-w-md w-full border-8 border-yellow-400">
             <div class="text-7xl mb-4">🏆</div>
-            <h1 class="text-3xl font-black text-cyan-900 uppercase">Tahniah!</h1>
+            <h1 class="text-3xl font-black text-cyan-900 uppercase leading-none">Adventure Complete!</h1>
             <div class="my-4 bg-cyan-50 p-4 rounded-3xl border-2 border-cyan-100">
                 <p id="end-name" class="text-xl font-black text-cyan-900"></p>
-                <p id="end-class" class="text-xs font-bold text-cyan-700 mb-2"></p>
+                <p id="end-class" class="text-xs font-bold text-cyan-700 mb-2 uppercase"></p>
                 <div class="bg-white py-2 rounded-2xl shadow-inner mb-4">
                     <p class="text-[10px] font-bold text-gray-400 uppercase">Final Score</p>
                     <p id="end-score" class="text-4xl font-black text-orange-500">0</p>
@@ -496,17 +543,5 @@
             </div>
         </div>
     </div>
-
-    <script>
-        for(let i=0; i<15; i++) {
-            const b = document.createElement('div');
-            b.className = 'bubble';
-            b.style.left = Math.random()*100 + '%';
-            b.style.width = b.style.height = (Math.random()*15 + 10) + 'px';
-            b.style.animationDuration = (Math.random()*5 + 5) + 's';
-            b.style.animationDelay = Math.random()*5 + 's';
-            document.body.appendChild(b);
-        }
-    </script>
 </body>
 </html>
