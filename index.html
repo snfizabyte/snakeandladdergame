@@ -1,25 +1,25 @@
 <!DOCTYPE html>
-<html lang="ms">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cities Beneath the Sea Adventure - Universal Version</title>
+    <title>Cities Beneath the Sea Adventure - Vibrant Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
     <script type="module">
         // Firebase Imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global Variables
         let db, auth;
         let isFirebaseEnabled = false;
-        let appId = 'coral-adventure-v3';
-        const apiKey = ""; // Letakkan API Key Gemini anda di sini jika guna di GitHub
+        let appId = 'coral-adventure-vibrant';
+        const apiKey = ""; // Gemini API Key if used
 
-        // --- SAFE INITIALIZATION ---
+        // --- SAFE INITIALIZATION FOR GITHUB ---
         function initSystem() {
             try {
                 if (typeof __firebase_config !== 'undefined' && __firebase_config) {
@@ -28,12 +28,12 @@
                     auth = getAuth(app);
                     db = getFirestore(app);
                     isFirebaseEnabled = true;
-                    console.log("Sistem Cloud Aktif.");
+                    console.log("Cloud system active.");
                 } else {
-                    console.warn("Sistem Cloud Tidak Ditemui. Menjalankan Mod Tempatan (GitHub).");
+                    console.warn("Local Mode: Running without Firebase (GitHub friendly).");
                 }
             } catch (e) {
-                console.error("Ralat Inisialisasi:", e);
+                console.error("Initialization Error:", e);
             }
         }
         initSystem();
@@ -44,20 +44,24 @@
         let studentName = "";
         let studentClass = "";
         let isRolling = false;
-        let timerInterval;
 
-        // Questions Data
+        // 15 Reading Comprehension Questions
         const questions = [
             { q: "What are underwater cities mainly used for?", options: ["Studying marine life", "Growing crops", "Building hotels"], correct: 0 },
             { q: "Who lives in underwater habitats?", options: ["Astronauts", "Marine scientists", "Farmers"], correct: 1 },
             { q: "Why do scientists explore the ocean?", options: ["To find treasure", "To understand sea life", "To build houses"], correct: 1 },
             { q: "What equipment do divers need?", options: ["Oxygen tank", "Umbrella", "Bicycle"], correct: 0 },
             { q: "Why must oceans be protected?", options: ["To protect marine ecosystems", "To build malls", "To make ships faster"], correct: 0 },
-            { q: "What is a coral reef?", options: ["A structure of polyps", "A giant wave", "A type of sand"], correct: 0 },
-            { q: "Which gas do divers breathe from tanks?", options: ["Carbon Dioxide", "Oxygen", "Nitrogen"], correct: 1 },
-            { q: "What is the 'ocean floor'?", options: ["The beach", "The bottom of the sea", "The surface of water"], correct: 1 },
-            { q: "Pollution in the ocean is ____.", options: ["Good for fish", "Harmful to nature", "Helpful for divers"], correct: 1 },
-            { q: "What is a submarine?", options: ["An underwater boat", "A fast airplane", "A racing car"], correct: 0 }
+            { q: "What is a coral reef?", options: ["A structure of tiny animals", "A type of seaweed", "A rock mountain"], correct: 0 },
+            { q: "How much of the Earth is covered by water?", options: ["About 50%", "About 70%", "About 90%"], correct: 1 },
+            { q: "What can damage coral reefs?", options: ["Pollution and warm water", "Fish swimming", "Clean water"], correct: 0 },
+            { q: "Which of these is a 'marine scientist'?", options: ["A person who studies space", "A person who studies the ocean", "A person who studies volcanoes"], correct: 1 },
+            { q: "What are 'submersibles'?", options: ["Underwater research vehicles", "Flying boats", "Racing cars"], correct: 0 },
+            { q: "Why are reefs called 'cities'?", options: ["Because they have buildings", "Because many creatures live there", "Because they have roads"], correct: 1 },
+            { q: "A 'habitat' is a place where...", options: ["An animal is hunted", "An animal lives naturally", "An animal eats"], correct: 1 },
+            { q: "What is 'marine life'?", options: ["Animals living on land", "Animals living in the sea", "Plants in the desert"], correct: 1 },
+            { q: "The ocean floor is...", options: ["The surface of the sea", "The bottom of the sea", "The beach"], correct: 1 },
+            { q: "What is the biggest threat to underwater cities?", options: ["Climate change", "Too much oxygen", "Happy fish"], correct: 0 }
         ];
 
         const snakes = { 12: 5, 22: 14, 31: 19 };
@@ -83,7 +87,7 @@
             const classIn = document.getElementById('input-class').value.trim();
             
             if(!nameIn || !classIn) {
-                alert("Sila masukkan nama dan kelas!");
+                alert("Please enter your name and class!");
                 return;
             }
 
@@ -97,28 +101,46 @@
             
             generateBoard();
 
-            // Background login for cloud if enabled
             if (isFirebaseEnabled && auth) {
-                signInAnonymously(auth).catch(() => console.log("Cloud login failed. Playing locally."));
+                signInAnonymously(auth).catch(() => {});
             }
         };
 
         function generateBoard() {
             const board = document.getElementById('board');
             board.innerHTML = '';
-            const colors = ['bg-rose-500', 'bg-cyan-500', 'bg-emerald-500', 'bg-amber-400', 'bg-purple-500', 'bg-orange-500'];
-            for (let i = 36; i >= 1; i--) {
-                const cell = document.createElement('div');
-                cell.id = `cell-${i}`;
-                const colorClass = colors[i % colors.length];
-                cell.className = `cell relative border border-white/20 flex items-center justify-center font-black text-white rounded shadow-sm ${colorClass}`;
-                cell.innerHTML = `<span class="opacity-30 text-xs">${i}</span>`;
-                
-                if (snakes[i]) cell.innerHTML += `<div class="absolute text-xl">🐍</div>`;
-                if (ladders[i]) cell.innerHTML += `<div class="absolute text-xl">🪜</div>`;
-                if (questionTiles.includes(i)) cell.innerHTML += `<div class="absolute top-0 right-0 p-0.5">❓</div>`;
-                if (vocabTiles.includes(i)) cell.innerHTML += `<div class="absolute top-0 right-0 p-0.5">📖</div>`;
-                board.appendChild(cell);
+            // Vibrant Color Palette for Color Blocking
+            const colors = ['bg-rose-500', 'bg-cyan-500', 'bg-emerald-500', 'bg-amber-400', 'bg-purple-600', 'bg-orange-500'];
+            
+            for (let row = 5; row >= 0; row--) {
+                for (let col = 0; col < 6; col++) {
+                    const cellNum = row % 2 === 0 ? (row * 6) + (col + 1) : (row * 6) + (6 - col);
+                    const cell = document.createElement('div');
+                    cell.id = `cell-${cellNum}`;
+                    const colorClass = colors[cellNum % colors.length];
+                    cell.className = `cell relative border-2 border-white/30 flex flex-col items-center justify-center font-black text-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)] ${colorClass} transition-all duration-300 transform hover:scale-105`;
+                    
+                    cell.innerHTML = `<span>${cellNum}</span>`;
+                    
+                    if (snakes[cellNum]) {
+                        cell.innerHTML += `
+                            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span class="text-4xl drop-shadow-md">🐍</span>
+                                <span class="bg-red-700 text-[8px] px-1 rounded -mt-1 font-bold">DOWN TO ${snakes[cellNum]}</span>
+                            </div>`;
+                    }
+                    if (ladders[cellNum]) {
+                        cell.innerHTML += `
+                            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span class="text-4xl drop-shadow-md">🪜</span>
+                                <span class="bg-blue-700 text-[8px] px-1 rounded -mt-1 font-bold">UP TO ${ladders[cellNum]}</span>
+                            </div>`;
+                    }
+                    if (questionTiles.includes(cellNum)) cell.innerHTML += `<div class="absolute top-1 right-1 bg-white text-black rounded-full w-5 h-5 flex items-center justify-center text-[10px] shadow-sm">❓</div>`;
+                    if (vocabTiles.includes(cellNum)) cell.innerHTML += `<div class="absolute top-1 right-1 bg-white text-black rounded-full w-5 h-5 flex items-center justify-center text-[10px] shadow-sm">📖</div>`;
+                    
+                    board.appendChild(cell);
+                }
             }
             updateToken();
         }
@@ -129,8 +151,8 @@
             const token = document.getElementById('player-token');
             const board = document.getElementById('board').getBoundingClientRect();
             const cRect = cell.getBoundingClientRect();
-            token.style.left = (cRect.left - board.left + (cRect.width/2) - 15) + 'px';
-            token.style.top = (cRect.top - board.top + (cRect.height/2) - 15) + 'px';
+            token.style.left = (cRect.left - board.left + (cRect.width/2) - 16) + 'px';
+            token.style.top = (cRect.top - board.top + (cRect.height/2) - 16) + 'px';
             document.getElementById('ui-pos').innerText = playerPos;
         }
 
@@ -144,7 +166,7 @@
                 dice.classList.remove('animate-bounce');
                 dice.innerText = ['⚀','⚁','⚂','⚃','⚄','⚅'][val-1];
                 movePlayer(val);
-            }, 600);
+            }, 800);
         };
 
         function movePlayer(steps) {
@@ -178,7 +200,7 @@
 
             q.options.forEach((opt, i) => {
                 const b = document.createElement('button');
-                b.className = "w-full p-3 text-left bg-gray-50 border-2 border-cyan-100 rounded-xl font-bold text-cyan-900";
+                b.className = "w-full p-4 text-left bg-white border-4 border-cyan-100 rounded-2xl font-black text-cyan-900 hover:bg-cyan-50 hover:border-cyan-400 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,0.1)]";
                 b.innerText = opt;
                 b.onclick = () => submitAnswer(i === q.correct);
                 opts.appendChild(b);
@@ -193,15 +215,15 @@
             feedback.classList.remove('hidden');
             if(isCorrect) {
                 score += 10;
-                feedback.innerText = "BETUL! +10 Mata ⭐";
-                feedback.className = "p-2 bg-green-500 text-white rounded-lg font-bold text-center";
+                feedback.innerText = "CORRECT! +10 Points ⭐";
+                feedback.className = "p-3 bg-green-500 text-white rounded-xl font-black text-center animate-pulse shadow-lg";
                 document.getElementById('ui-score').innerText = score;
-                setTimeout(closeModalQ, 1000);
+                setTimeout(closeModalQ, 1200);
             } else {
                 playerPos = Math.max(1, playerPos - 1);
-                feedback.innerText = "SALAH! Undur 1 petak 🔙";
-                feedback.className = "p-2 bg-red-500 text-white rounded-lg font-bold text-center";
-                setTimeout(closeModalQ, 1500);
+                feedback.innerText = "WRONG! Move back 1 square 🔙";
+                feedback.className = "p-3 bg-red-500 text-white rounded-xl font-black text-center shadow-lg";
+                setTimeout(closeModalQ, 1800);
             }
         }
 
@@ -236,7 +258,6 @@
             document.getElementById('end-class').innerText = studentClass;
             document.getElementById('end-score').innerText = score;
             
-            // Rec to cloud if available
             if(isFirebaseEnabled && db && auth.currentUser) {
                 addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), {
                     name: studentName, class: studentClass, score: score, timestamp: serverTimestamp()
@@ -248,148 +269,175 @@
         window.takeScreenshot = () => {
             html2canvas(document.getElementById('win-card')).then(canvas => {
                 const link = document.createElement('a');
-                link.download = `Keputusan_${studentName}.png`;
+                link.download = `Result_${studentName}_${studentClass}.png`;
                 link.href = canvas.toDataURL();
                 link.click();
             });
         };
 
         window.openTeacherDashboard = async () => {
-            const pass = prompt("Masukkan kata laluan guru:");
+            const pass = prompt("Enter Teacher Password:");
             if(pass === "cikgu123") {
                 if(!isFirebaseEnabled) {
-                    alert("Dashboard tidak tersedia di GitHub (Hanya tersedia di persekitaran asal).");
+                    alert("Dashboard only available in original environment.");
                     return;
                 }
                 document.getElementById('screen-start').classList.add('hidden');
                 document.getElementById('screen-teacher').classList.remove('hidden');
                 fetchResults();
-            } else {
-                alert("Kata laluan salah.");
-            }
+            } else { alert("Incorrect password."); }
         };
 
         async function fetchResults() {
             const list = document.getElementById('teacher-results-list');
-            list.innerHTML = "Memuatkan data...";
+            list.innerHTML = "<p class='text-center py-4 animate-pulse text-cyan-900 font-bold'>Loading student scores...</p>";
             try {
                 const qSnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'results'));
-                let html = '<table class="w-full text-xs"><thead><tr class="bg-cyan-100"><th class="p-1">Nama</th><th class="p-1">Skor</th></tr></thead><tbody>';
+                let html = '<table class="w-full text-sm font-bold"><thead><tr class="bg-cyan-100 text-cyan-900 uppercase text-[10px]"><th class="p-2">Name</th><th class="p-2">Class</th><th class="p-2">Score</th></tr></thead><tbody>';
                 qSnapshot.forEach(doc => {
                     const r = doc.data();
-                    html += `<tr class="border-b"><td class="p-1">${r.name}</td><td class="p-1 text-center font-bold">${r.score}</td></tr>`;
+                    html += `<tr class="border-b text-cyan-800"><td class="p-2 truncate max-w-[100px]">${r.name}</td><td class="p-2 text-center">${r.class}</td><td class="p-2 text-center text-orange-600">${r.score}</td></tr>`;
                 });
                 html += '</tbody></table>';
                 list.innerHTML = html;
-            } catch (e) { list.innerHTML = "Gagal mengambil data."; }
+            } catch (e) { list.innerHTML = "Error fetching data."; }
         }
 
     </script>
     <style>
         .cell { aspect-ratio: 1 / 1; }
         .ocean-bg { background: linear-gradient(180deg, #0ea5e9 0%, #0c4a6e 100%); }
-        .bubble { position: absolute; background: rgba(255,255,255,0.2); border-radius: 50%; animation: rise linear infinite; pointer-events: none; }
+        .bubble { position: absolute; background: rgba(255,255,255,0.2); border-radius: 50%; animation: rise linear infinite; pointer-events: none; z-index: 0; }
         @keyframes rise { from { bottom: -20px; opacity: 0; } to { bottom: 100%; opacity: 0.8; } }
+        .animate-pop { animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes pop { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
     </style>
 </head>
-<body class="ocean-bg min-h-screen flex items-center justify-center p-2 font-sans overflow-hidden">
+<body class="ocean-bg min-h-screen flex items-center justify-center p-4 font-sans overflow-hidden select-none">
     <div id="bubbles-container" class="fixed inset-0 pointer-events-none"></div>
 
-    <!-- Start Screen -->
-    <div id="screen-start" class="relative z-10 bg-white p-6 rounded-[2.5rem] shadow-2xl max-w-xs w-full text-center border-4 border-cyan-400">
-        <div class="text-6xl mb-2 animate-bounce">🤿</div>
-        <h1 class="text-2xl font-black text-cyan-900 leading-none mb-1 uppercase">Cities Beneath<br>The Sea</h1>
-        <p class="text-cyan-600 font-bold mb-6 text-xs uppercase tracking-widest">Wonders of Nature Adventure</p>
-        <div class="space-y-3">
-            <input type="text" id="input-name" placeholder="Nama Anda" class="w-full p-3 bg-cyan-50 border border-cyan-100 rounded-xl font-bold outline-none">
-            <input type="text" id="input-class" placeholder="Kelas" class="w-full p-3 bg-cyan-50 border border-cyan-100 rounded-xl font-bold outline-none">
-            <button onclick="startAdventure()" class="w-full bg-orange-500 text-white font-black py-3 rounded-xl shadow-lg hover:bg-orange-600 transition text-lg">▶ MULA</button>
-            <button onclick="openTeacherDashboard()" class="text-[10px] text-gray-400 underline">Dashboard Guru (Mod Cloud)</button>
+    <!-- START SCREEN -->
+    <div id="screen-start" class="relative z-10 bg-white p-10 rounded-[3rem] shadow-[10px_10px_0px_0px_rgba(0,0,0,0.3)] max-w-sm w-full text-center border-8 border-cyan-400 animate-pop">
+        <div class="text-7xl mb-4 animate-bounce">🤿</div>
+        <h1 class="text-3xl font-black text-cyan-950 leading-none mb-1 uppercase tracking-tighter">Cities Beneath<br>The Sea</h1>
+        <p class="text-cyan-600 font-black mb-8 text-xs uppercase tracking-widest bg-cyan-50 py-1 rounded-full">Unit 3 Reading Adventure</p>
+        
+        <div class="space-y-4">
+            <input type="text" id="input-name" placeholder="YOUR FULL NAME" class="w-full p-4 bg-gray-50 border-4 border-gray-100 rounded-2xl font-black text-center focus:outline-none focus:border-cyan-400 placeholder:text-gray-300">
+            <input type="text" id="input-class" placeholder="YOUR CLASS (e.g. 3 ALPHA)" class="w-full p-4 bg-gray-50 border-4 border-gray-100 rounded-2xl font-black text-center focus:outline-none focus:border-cyan-400 placeholder:text-gray-300">
+            <button onclick="startAdventure()" class="w-full bg-orange-500 text-white font-black py-5 rounded-2xl shadow-[6px_6px_0px_0px_rgba(194,65,12,1)] hover:translate-y-1 hover:shadow-none transition-all text-xl uppercase tracking-wider">
+                ▶ START ADVENTURE
+            </button>
+            <button onclick="openTeacherDashboard()" class="text-[10px] text-gray-400 underline font-bold hover:text-cyan-600">Teacher Dashboard (Cloud)</button>
         </div>
     </div>
 
-    <!-- Teacher Dashboard -->
-    <div id="screen-teacher" class="hidden relative z-10 bg-white p-6 rounded-[2rem] shadow-2xl max-w-sm w-full text-center border-4 border-cyan-700 max-h-[80vh] overflow-hidden flex flex-col">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="font-black text-cyan-900">REKOD MARKAH</h2>
-            <button onclick="resetGame()" class="text-xs text-red-500 font-bold uppercase">Tutup</button>
+    <!-- TEACHER DASHBOARD -->
+    <div id="screen-teacher" class="hidden relative z-10 bg-white p-8 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border-8 border-cyan-700 max-h-[80vh] overflow-hidden flex flex-col animate-pop">
+        <div class="flex justify-between items-center mb-4 border-b-4 border-cyan-50 pb-2">
+            <h2 class="font-black text-cyan-900 text-xl uppercase tracking-tighter">Student Marks</h2>
+            <button onclick="resetGame()" class="text-xs text-red-500 font-black border-2 border-red-100 px-3 py-1 rounded-full hover:bg-red-50">EXIT</button>
         </div>
-        <div id="teacher-results-list" class="overflow-y-auto flex-1 rounded-lg bg-gray-50"></div>
+        <div id="teacher-results-list" class="overflow-y-auto flex-1 rounded-xl bg-gray-50"></div>
     </div>
 
-    <!-- Game Screen -->
-    <div id="screen-game" class="hidden relative z-10 w-full max-w-4xl flex flex-col lg:flex-row gap-4 h-full max-h-[95vh]">
-        <div class="lg:w-64 flex flex-col gap-2">
-            <div class="bg-white/95 p-4 rounded-2xl shadow-lg border-2 border-cyan-400">
-                <div class="flex items-center gap-2 mb-2 border-b pb-1">
-                    <span class="text-2xl">🤿</span>
+    <!-- GAME SCREEN -->
+    <div id="screen-game" class="hidden relative z-10 w-full max-w-5xl flex flex-col lg:flex-row gap-6 h-full max-h-[95vh] animate-pop">
+        <!-- Dashboard Panel -->
+        <div class="lg:w-72 flex flex-col gap-4">
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-[8px_8px_0px_0px_rgba(0,0,0,0.2)] border-4 border-black">
+                <div class="flex items-center gap-3 mb-4 border-b-2 border-gray-100 pb-2">
+                    <span class="text-4xl bg-cyan-100 p-2 rounded-2xl">🐳</span>
                     <div class="overflow-hidden leading-tight">
-                        <p id="ui-name" class="font-black text-cyan-900 text-sm truncate"></p>
-                        <p id="ui-class" class="text-[10px] font-bold text-cyan-600 truncate uppercase"></p>
+                        <p id="ui-name" class="font-black text-cyan-950 text-base truncate"></p>
+                        <p id="ui-class" class="text-[10px] font-black text-cyan-600 truncate uppercase tracking-widest"></p>
                     </div>
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-center">
-                    <div class="bg-cyan-50 p-1 rounded-lg"><p class="text-[9px] font-bold text-cyan-600">Skor</p><p id="ui-score" class="font-black text-cyan-900">0</p></div>
-                    <div class="bg-orange-50 p-1 rounded-lg"><p class="text-[9px] font-bold text-orange-600">Petak</p><p id="ui-pos" class="font-black text-orange-900">1</p></div>
+                <div class="grid grid-cols-2 gap-3 text-center">
+                    <div class="bg-cyan-50 p-3 rounded-2xl border-2 border-cyan-100 shadow-inner">
+                        <p class="text-[10px] font-black text-cyan-600 uppercase">Score</p>
+                        <p id="ui-score" class="text-3xl font-black text-cyan-900 leading-none">0</p>
+                    </div>
+                    <div class="bg-orange-50 p-3 rounded-2xl border-2 border-orange-100 shadow-inner">
+                        <p class="text-[10px] font-black text-orange-600 uppercase">Tile</p>
+                        <p id="ui-pos" class="text-3xl font-black text-orange-900 leading-none">1</p>
+                    </div>
                 </div>
             </div>
-            <div class="mt-auto flex flex-col items-center pb-4">
-                <div id="dice-display" class="text-6xl bg-white w-20 h-20 rounded-xl shadow-xl flex items-center justify-center border-4 border-cyan-400 mb-2 cursor-pointer" onclick="rollDice()">🎲</div>
-                <p class="text-white font-black uppercase text-[10px] animate-pulse">Tekan Dadu</p>
+            
+            <div class="mt-auto flex flex-col items-center pb-8 gap-4">
+                <button id="dice-display" onclick="rollDice()" class="text-8xl bg-white w-28 h-28 rounded-[2.5rem] shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)] flex items-center justify-center border-4 border-black hover:scale-110 active:scale-95 transition-all text-cyan-900 leading-none">🎲</button>
+                <p class="text-white font-black uppercase text-sm tracking-[0.2em] drop-shadow-lg animate-pulse">Tap Dice to Roll</p>
             </div>
         </div>
-        <div class="flex-1 relative bg-black/20 rounded-2xl p-2 border border-white/10">
-            <div id="board" class="grid grid-cols-6 gap-1 h-full w-full"></div>
-            <div id="player-token" class="absolute w-8 h-8 bg-yellow-300 border-2 border-black rounded-full shadow-lg z-30 transition-all duration-500 flex items-center justify-center text-lg">🤿</div>
+
+        <!-- Board Grid -->
+        <div class="flex-1 relative bg-white/20 rounded-[3rem] p-4 border-4 border-white/40 shadow-2xl backdrop-blur-sm">
+            <div id="board" class="grid grid-cols-6 gap-3 h-full w-full"></div>
+            <!-- Player Token -->
+            <div id="player-token" class="absolute w-12 h-12 bg-yellow-400 border-4 border-black rounded-full shadow-2xl z-30 transition-all duration-500 flex items-center justify-center text-2xl animate-float">🤿</div>
         </div>
     </div>
 
-    <!-- Modals -->
-    <div id="modal-q" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-6 z-50">
-        <div class="bg-white w-full max-w-xs rounded-2xl p-6 space-y-3 shadow-2xl border-4 border-cyan-400 relative">
-            <h2 id="q-text" class="text-sm font-black text-gray-800 leading-tight"></h2>
-            <div id="q-options" class="space-y-2"></div>
+    <!-- CHALLENGE MODAL -->
+    <div id="modal-q" class="fixed inset-0 bg-cyan-950/90 hidden items-center justify-center p-6 z-50">
+        <div class="bg-white w-full max-w-sm rounded-[3rem] p-8 space-y-6 shadow-2xl border-8 border-cyan-400 animate-pop">
+            <div class="flex items-center justify-center bg-cyan-50 py-2 rounded-full border-2 border-cyan-100">
+                <span class="text-cyan-700 font-black text-sm uppercase tracking-widest">📖 Ocean Challenge</span>
+            </div>
+            <h2 id="q-text" class="text-2xl font-black text-gray-800 leading-tight text-center"></h2>
+            <div id="q-options" class="space-y-3"></div>
             <div id="feedback" class="hidden"></div>
         </div>
     </div>
 
-    <div id="modal-vocab" class="fixed inset-0 bg-cyan-900/90 hidden items-center justify-center p-6 z-50">
-        <div class="bg-white w-full max-w-xs rounded-2xl p-6 text-center space-y-3 border-4 border-orange-400">
-            <div class="text-4xl">📖</div>
-            <h2 id="v-word" class="text-xl font-black text-cyan-900 uppercase"></h2>
-            <p id="v-meaning" class="text-sm text-cyan-700 italic font-bold"></p>
-            <button onclick="closeVocab()" class="w-full bg-cyan-600 text-white font-black py-2 rounded-xl">FAHAM!</button>
+    <!-- VOCAB MODAL -->
+    <div id="modal-vocab" class="fixed inset-0 bg-blue-950/90 hidden items-center justify-center p-6 z-50">
+        <div class="bg-white w-full max-w-xs rounded-[3rem] p-8 text-center space-y-6 border-8 border-orange-400 animate-pop shadow-2xl">
+            <div class="text-7xl animate-bounce">📖</div>
+            <h2 id="v-word" class="text-3xl font-black text-cyan-950 uppercase leading-none"></h2>
+            <div class="h-2 bg-orange-100 w-full rounded-full"></div>
+            <p id="v-meaning" class="text-lg text-cyan-800 italic font-black leading-tight"></p>
+            <button onclick="closeVocab()" class="w-full bg-cyan-600 text-white font-black py-4 rounded-2xl shadow-lg text-xl uppercase tracking-widest">Got it!</button>
         </div>
     </div>
 
-    <!-- End Screen -->
-    <div id="screen-end" class="hidden fixed inset-0 bg-cyan-900 flex flex-col items-center justify-center p-6 z-50 text-center">
-        <div id="win-card" class="bg-white p-6 rounded-[2rem] shadow-2xl max-w-xs w-full border-4 border-yellow-400">
-            <div class="text-6xl mb-2">🏆</div>
-            <h1 class="text-2xl font-black text-cyan-900 uppercase leading-none">TAMAT!</h1>
-            <div class="my-3 bg-cyan-50 p-4 rounded-xl border">
-                <p id="end-name" class="font-black text-cyan-900"></p>
-                <p id="end-class" class="text-[10px] font-bold text-cyan-700 mb-2 uppercase"></p>
-                <div class="bg-white py-2 rounded-lg shadow-inner mb-2">
-                    <p id="end-score" class="text-3xl font-black text-orange-500">0</p>
+    <!-- WIN SCREEN -->
+    <div id="screen-end" class="hidden fixed inset-0 bg-cyan-950 flex flex-col items-center justify-center p-6 z-50 text-center animate-pop">
+        <div id="win-card" class="bg-white p-10 rounded-[4rem] shadow-2xl max-w-sm w-full border-8 border-yellow-400 relative overflow-hidden">
+            <!-- Decorative starfish -->
+            <div class="absolute -top-5 -right-5 text-6xl opacity-30">⭐️</div>
+            <div class="text-8xl mb-4">🏆</div>
+            <h1 class="text-4xl font-black text-cyan-950 leading-tight mb-2 uppercase tracking-tighter">Adventure Complete!</h1>
+            <p class="text-cyan-600 font-bold mb-8 italic">You discovered the wonders of the sea!</p>
+            
+            <div class="my-6 bg-cyan-50 p-6 rounded-[2.5rem] border-4 border-cyan-100 shadow-inner">
+                <p id="end-name" class="text-2xl font-black text-cyan-950 leading-none mb-1"></p>
+                <p id="end-class" class="text-xs font-black text-cyan-700 uppercase tracking-widest mb-6"></p>
+                <div class="bg-white py-6 rounded-3xl shadow-xl border-2 border-cyan-100">
+                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-1">Final Score</p>
+                    <p id="end-score" class="text-7xl font-black text-orange-500 leading-none">0</p>
                 </div>
             </div>
-            <div class="flex flex-col gap-2">
-                <button onclick="takeScreenshot()" class="bg-emerald-600 text-white font-black py-2 rounded text-xs">📸 SIMPAN KEPUTUSAN (PNG)</button>
-                <button onclick="resetGame()" class="text-cyan-600 font-bold text-xs underline">Main Semula</button>
+            
+            <div class="flex flex-col gap-3">
+                <button onclick="takeScreenshot()" class="bg-emerald-500 text-white font-black py-5 rounded-3xl shadow-[6px_6px_0px_0px_rgba(5,150,105,1)] hover:translate-y-1 hover:shadow-none transition-all text-xl uppercase tracking-widest">
+                    📸 Download Result
+                </button>
+                <button onclick="resetGame()" class="text-cyan-600 font-black text-sm underline hover:text-cyan-900 transition-colors uppercase tracking-widest mt-4">Play Again</button>
             </div>
         </div>
     </div>
 
     <script>
-        // Bubble Effect
+        // Floating Bubble Effect
         const container = document.getElementById('bubbles-container');
-        for(let i=0; i<10; i++) {
+        for(let i=0; i<15; i++) {
             const b = document.createElement('div');
             b.className = 'bubble';
             b.style.left = Math.random()*100 + '%';
-            b.style.width = b.style.height = (Math.random()*15 + 10) + 'px';
-            b.style.animationDuration = (Math.random()*5 + 5) + 's';
+            b.style.width = b.style.height = (Math.random()*25 + 10) + 'px';
+            b.style.animationDuration = (Math.random()*6 + 4) + 's';
             b.style.animationDelay = Math.random()*5 + 's';
             container.appendChild(b);
         }
